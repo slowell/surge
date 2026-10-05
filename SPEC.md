@@ -9,7 +9,7 @@ This is a portfolio demo for a Senior Full Stack Engineer application. It must p
 
 1. **Ships end to end**: data model → API → polished mobile client, live and clickable.
 2. **Thinks at consumer scale**: handles a burst of tens of thousands of users competing for limited inventory with zero oversells, and degrades gracefully past capacity.
-3. **AI-native, two ways**: *built* with an engineered Claude Code workflow (§17), and *building with* AI inside the product (§11a).
+3. **AI-native, two ways**: _built_ with an engineered Claude Code workflow (§17), and _building with_ AI inside the product (§11a).
 
 Polish on a narrow feature beats breadth. If a choice comes down to "more features" or "the core flow is fast, correct, and beautiful", pick the second.
 
@@ -29,6 +29,7 @@ A brand/admin user creates drops: title, sponsor, reward, quantity, start/end ti
 ## 3. Scope
 
 **In**
+
 - Expo (React Native) mobile app, also runnable on web via Expo
 - Node/TypeScript API
 - Postgres for durable records, Redis for the hot path
@@ -41,6 +42,7 @@ A brand/admin user creates drops: title, sponsor, reward, quantity, start/end ti
 - AI-assisted challenge drafting in the admin (§11a), off the hot path, human-approved
 
 **Out**
+
 - Real payments, real auth providers, real push notifications
 - Multiple drop types, social features, chat
 - Native builds / app store distribution (Expo Go + web is enough)
@@ -84,24 +86,24 @@ flowchart LR
 
 ## 5. Data model (Postgres)
 
-| Table | Columns | Notes |
-|---|---|---|
-| `members` | `id uuid pk`, `handle text unique`, `tier text`, `created_at` | tier: `free` / `plus` |
-| `drops` | `id uuid pk`, `title`, `sponsor`, `reward_name`, `reward_image_url`, `total_qty int`, `starts_at`, `ends_at`, `challenge jsonb`, `challenge_source text`, `created_at` | challenge: `{question, options[], answer_index}` (answer never sent to clients); source: `human` / `ai_assisted` |
-| `claims` | `id uuid pk`, `drop_id fk`, `member_id fk`, `position int`, `idempotency_key text`, `created_at` | `unique(drop_id, member_id)`, `unique(idempotency_key)` |
-| `points_ledger` | `id bigserial pk`, `member_id fk`, `delta int`, `reason text`, `ref_id uuid`, `created_at` | append-only; balance = `sum(delta)`; `unique(reason, ref_id)` prevents double-award |
+| Table           | Columns                                                                                                                                                                | Notes                                                                                                            |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `members`       | `id uuid pk`, `handle text unique`, `tier text`, `created_at`                                                                                                          | tier: `free` / `plus`                                                                                            |
+| `drops`         | `id uuid pk`, `title`, `sponsor`, `reward_name`, `reward_image_url`, `total_qty int`, `starts_at`, `ends_at`, `challenge jsonb`, `challenge_source text`, `created_at` | challenge: `{question, options[], answer_index}` (answer never sent to clients); source: `human` / `ai_assisted` |
+| `claims`        | `id uuid pk`, `drop_id fk`, `member_id fk`, `position int`, `idempotency_key text`, `created_at`                                                                       | `unique(drop_id, member_id)`, `unique(idempotency_key)`                                                          |
+| `points_ledger` | `id bigserial pk`, `member_id fk`, `delta int`, `reason text`, `ref_id uuid`, `created_at`                                                                             | append-only; balance = `sum(delta)`; `unique(reason, ref_id)` prevents double-award                              |
 
 ## 6. Redis keys
 
-| Key | Type | Purpose |
-|---|---|---|
-| `drop:{id}:meta` | hash | total, starts_at, ends_at (loaded when drop is armed) |
-| `drop:{id}:remaining` | int | inventory counter |
-| `drop:{id}:claimed` | set | member ids who claimed |
-| `drop:{id}:lb` | zset | leaderboard for the drop (points) |
-| `lb:global` | zset | all-time points leaderboard |
-| `idem:{key}` | string (TTL 24h) | cached claim response for idempotent retries |
-| `admit:{drop}:{second}` | int (TTL 5s) | admission counter for the waiting room |
+| Key                     | Type             | Purpose                                               |
+| ----------------------- | ---------------- | ----------------------------------------------------- |
+| `drop:{id}:meta`        | hash             | total, starts_at, ends_at (loaded when drop is armed) |
+| `drop:{id}:remaining`   | int              | inventory counter                                     |
+| `drop:{id}:claimed`     | set              | member ids who claimed                                |
+| `drop:{id}:lb`          | zset             | leaderboard for the drop (points)                     |
+| `lb:global`             | zset             | all-time points leaderboard                           |
+| `idem:{key}`            | string (TTL 24h) | cached claim response for idempotent retries          |
+| `admit:{drop}:{second}` | int (TTL 5s)     | admission counter for the waiting room                |
 
 ## 7. Claim algorithm (single Lua script)
 
@@ -136,19 +138,19 @@ The challenge answer is validated **before** the Lua script (wrong answer → 42
 
 All request/response bodies validated with zod schemas from `packages/shared`.
 
-| Method | Path | Notes |
-|---|---|---|
-| POST | `/auth/dev-login` | `{handle}` → `{token, member}`; creates member if new |
-| GET | `/me` | member + points balance + tier |
-| GET | `/drops/upcoming` | next/current drops (no challenge answers) |
-| GET | `/drops/:id` | drop detail + challenge question/options |
-| POST | `/drops/:id/claim` | header `Idempotency-Key`; body `{answerIndex}` → `CLAIMED` / `SOLD_OUT` / `ALREADY_CLAIMED` / `NOT_OPEN` / `CLOSED`; 422 wrong answer; 429 waiting room |
-| GET | `/drops/:id/stream` | SSE: `{remaining, total, top: [{handle, points}]}` |
-| GET | `/leaderboard` | global top 50 + caller's rank |
-| POST | `/admin/drops` | create drop (admin token) |
-| POST | `/admin/drops/:id/arm` | load drop into Redis |
-| POST | `/admin/challenges/draft` | `{sponsor, reward, theme, audience}` → 3 validated challenge candidates (§11a) |
-| GET | `/healthz`, `/metrics` | health + basic counters |
+| Method | Path                      | Notes                                                                                                                                                   |
+| ------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/dev-login`         | `{handle}` → `{token, member}`; creates member if new                                                                                                   |
+| GET    | `/me`                     | member + points balance + tier                                                                                                                          |
+| GET    | `/drops/upcoming`         | next/current drops (no challenge answers)                                                                                                               |
+| GET    | `/drops/:id`              | drop detail + challenge question/options                                                                                                                |
+| POST   | `/drops/:id/claim`        | header `Idempotency-Key`; body `{answerIndex}` → `CLAIMED` / `SOLD_OUT` / `ALREADY_CLAIMED` / `NOT_OPEN` / `CLOSED`; 422 wrong answer; 429 waiting room |
+| GET    | `/drops/:id/stream`       | SSE: `{remaining, total, top: [{handle, points}]}`                                                                                                      |
+| GET    | `/leaderboard`            | global top 50 + caller's rank                                                                                                                           |
+| POST   | `/admin/drops`            | create drop (admin token)                                                                                                                               |
+| POST   | `/admin/drops/:id/arm`    | load drop into Redis                                                                                                                                    |
+| POST   | `/admin/challenges/draft` | `{sponsor, reward, theme, audience}` → 3 validated challenge candidates (§11a)                                                                          |
+| GET    | `/healthz`, `/metrics`    | health + basic counters                                                                                                                                 |
 
 ## 11. Mobile screens
 
@@ -213,13 +215,13 @@ Brands and creators shouldn't have to write trivia by hand for every drop. In th
 
 ## 16. Schedule
 
-| Day | Milestone |
-|---|---|
+| Day | Milestone                                                                                                                                                                                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Mon | M0: monorepo, docker-compose, shared schemas, DB migrations, seed, lefthook, the pnpm scripts CI depends on (`typecheck`, `lint`, `test`, `test:concurrency`, `build`, `start:api`, `start:worker`, `load:spike --quick`, `reconcile --latest --wait-for-drain`). Push, let CI run once, then run `scripts/protect-main.sh`. |
-| Tue | M1: auth, drops, Lua claim, idempotency, queue + worker, SSE ticker, concurrency tests |
-| Wed | M2: run `scripts/worktrees.sh` and work two parallel lanes. **api lane:** hardening, admin endpoints, AI challenge drafting. **mobile lane:** Expo app (all screens and states), minimal admin UI |
-| Thu | M3: deploy, k6 spike, find + fix bottleneck, waiting room, reconcile. **Feature freeze tonight.** |
-| Fri | M4: README, SCALE.md, BUILD_LOG.md, video, apply |
+| Tue | M1: auth, drops, Lua claim, idempotency, queue + worker, SSE ticker, concurrency tests                                                                                                                                                                                                                                       |
+| Wed | M2: run `scripts/worktrees.sh` and work two parallel lanes. **api lane:** hardening, admin endpoints, AI challenge drafting. **mobile lane:** Expo app (all screens and states), minimal admin UI                                                                                                                            |
+| Thu | M3: deploy, k6 spike, find + fix bottleneck, waiting room, reconcile. **Feature freeze tonight.**                                                                                                                                                                                                                            |
+| Fri | M4: README, SCALE.md, BUILD_LOG.md, video, apply                                                                                                                                                                                                                                                                             |
 
 **Cut order if behind:** admin UI → AI drafting (keep the endpoint, drop the UI) → SSE leaderboard (keep counter) → web build → tier badges. Never cut: claim correctness, load test + write-up, BUILD_LOG.
 
@@ -227,17 +229,17 @@ Brands and creators shouldn't have to write trivia by hand for every drop. In th
 
 The repo itself demonstrates how the work was done. Reviewers should be able to see the workflow in the files, not just read a claim about it.
 
-| Piece | Where | Purpose |
-|---|---|---|
-| Project memory | `CLAUDE.md` | Rules the agent always follows: stack, conventions, claim-path rules, branding, scope |
-| Skills | `.claude/skills/` | `/milestone` (plan → tests first → build → review → log), `/claim-change` (required procedure for the riskiest code), `/load-run` (reproducible spike test + evidence), `/log-session` |
-| Reviewer subagents | `.claude/agents/` | Specialists with their own context and no edit tools (the two with Bash use it only to run tests and read output): `concurrency-reviewer` (adversarial), `ui-states-reviewer`, `load-test-analyst`. Building and reviewing are deliberately separate. |
-| Hooks | `.claude/settings.json`, `.claude/hooks/` | Deterministic guardrails: block edits to secrets/lockfile/applied migrations/results; typecheck + lint after every edit; concurrency suite after every claim-path edit. Enforced, not requested. |
-| Permissions | `.claude/settings.json` | Allow routine commands; deny reading `.env`, force push, `rm -rf` |
-| MCP | `.mcp.json` | Read-only Postgres access (via `DATABASE_URL_READONLY`, a SELECT-only role) for debugging and reconciliation |
-| Parallelism | `scripts/worktrees.sh` | Two Claude Code sessions in separate git worktrees, safe because of the shared zod contract |
-| Merge gates | `lefthook.yml`, `.github/workflows/ci.yml`, `scripts/protect-main.sh`, `branch-guard` hook | Four layers: local hooks (commit/push) → CI (`verify` always; `claim-smoke` boots the real API, spikes it with k6, and reconciles whenever the claim path changes) → one required `ci-ok` check → GitHub ruleset (PR only, up to date, threads resolved, linear history, no force push). The agent can't commit to main, push to main, merge PRs, or skip hooks. |
-| AI review | `.github/workflows/claude-review.yml` | A Claude PR review focused on the claim-path invariants, hot-path additions, and missing tests |
-| Evidence | `BUILD_LOG.md`, `load/results/` | Honest metrics, including bugs the agent introduced and which guardrail caught them |
+| Piece              | Where                                                                                      | Purpose                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project memory     | `CLAUDE.md`                                                                                | Rules the agent always follows: stack, conventions, claim-path rules, branding, scope                                                                                                                                                                                                                                                                            |
+| Skills             | `.claude/skills/`                                                                          | `/milestone` (plan → tests first → build → review → log), `/claim-change` (required procedure for the riskiest code), `/load-run` (reproducible spike test + evidence), `/log-session`                                                                                                                                                                           |
+| Reviewer subagents | `.claude/agents/`                                                                          | Specialists with their own context and no edit tools (the two with Bash use it only to run tests and read output): `concurrency-reviewer` (adversarial), `ui-states-reviewer`, `load-test-analyst`. Building and reviewing are deliberately separate.                                                                                                            |
+| Hooks              | `.claude/settings.json`, `.claude/hooks/`                                                  | Deterministic guardrails: block edits to secrets/lockfile/applied migrations/results; typecheck + lint after every edit; concurrency suite after every claim-path edit. Enforced, not requested.                                                                                                                                                                 |
+| Permissions        | `.claude/settings.json`                                                                    | Allow routine commands; deny reading `.env`, force push, `rm -rf`                                                                                                                                                                                                                                                                                                |
+| MCP                | `.mcp.json`                                                                                | Read-only Postgres access (via `DATABASE_URL_READONLY`, a SELECT-only role) for debugging and reconciliation                                                                                                                                                                                                                                                     |
+| Parallelism        | `scripts/worktrees.sh`                                                                     | Two Claude Code sessions in separate git worktrees, safe because of the shared zod contract                                                                                                                                                                                                                                                                      |
+| Merge gates        | `lefthook.yml`, `.github/workflows/ci.yml`, `scripts/protect-main.sh`, `branch-guard` hook | Four layers: local hooks (commit/push) → CI (`verify` always; `claim-smoke` boots the real API, spikes it with k6, and reconciles whenever the claim path changes) → one required `ci-ok` check → GitHub ruleset (PR only, up to date, threads resolved, linear history, no force push). The agent can't commit to main, push to main, merge PRs, or skip hooks. |
+| AI review          | `.github/workflows/claude-review.yml`                                                      | A Claude PR review focused on the claim-path invariants, hot-path additions, and missing tests                                                                                                                                                                                                                                                                   |
+| Evidence           | `BUILD_LOG.md`, `load/results/`                                                            | Honest metrics, including bugs the agent introduced and which guardrail caught them                                                                                                                                                                                                                                                                              |
 
 **Interview framing:** "I don't ask the agent to be careful. I make careless output impossible to merge. Hooks enforce, tests gate, a separate reviewer attacks, and the log keeps me honest about where it failed."

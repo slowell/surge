@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-  merge_group:            # used if the repo has a merge queue (org repos); harmless otherwise
+  merge_group: # used if the repo has a merge queue (org repos); harmless otherwise
   push:
     branches: [main]
 
@@ -57,7 +57,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck        # all packages: catches shared-contract breaks across api + mobile
+      - run: pnpm typecheck # all packages: catches shared-contract breaks across api + mobile
       - run: pnpm lint
       - run: pnpm db:migrate
       - run: pnpm test
