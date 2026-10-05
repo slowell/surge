@@ -1,0 +1,31 @@
+# Local merge gates. Install once: pnpm add -D lefthook && pnpm lefthook install
+# Fast checks on commit, full checks on push, so CI failures are rare surprises, not routine.
+
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.{ts,tsx}"
+      run: pnpm exec eslint --max-warnings=0 {staged_files}
+    format:
+      glob: "*.{ts,tsx,json,md,yml}"
+      run: pnpm exec prettier --check {staged_files}
+    secrets:
+      run: |
+        if git diff --cached --name-only | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then
+          echo "Refusing to commit an .env file."; exit 1
+        fi
+
+pre-push:
+  commands:
+    typecheck:
+      run: pnpm typecheck
+    test:
+      run: pnpm test
+    concurrency:
+      # Only when the push touches the claim path.
+      run: |
+        if git diff --name-only @{push}..HEAD 2>/dev/null | grep -qE '^(apps/api/src/(claims|worker|admission)|packages/shared)/' \
+           || ! git rev-parse @{push} >/dev/null 2>&1; then
+          pnpm test:concurrency
+        fi

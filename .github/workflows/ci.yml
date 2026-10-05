@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  pull_request:
+  merge_group:            # used if the repo has a merge queue (org repos); harmless otherwise
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/surge_test
+  REDIS_URL: redis://localhost:6379
+  JWT_SECRET: ci-secret
+  ADMIN_TOKEN: ci-admin
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      claims: ${{ steps.filter.outputs.claims }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            claims:
+              - 'apps/api/src/claims/**'
+              - 'apps/api/src/worker/**'
+              - 'apps/api/src/admission/**'
+              - 'packages/shared/**'
+              - 'load/**'
+
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: surge_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck        # all packages: catches shared-contract breaks across api + mobile
+      - run: pnpm lint
+      - run: pnpm db:migrate
+      - run: pnpm test
+      - run: pnpm test:concurrency
+
+  # Only when the claim path changes: boot the real API + worker, hit it with a short spike, then reconcile.
+  claim-smoke:
+    needs: changes
+    if: needs.changes.outputs.claims == 'true'
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: surge_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: grafana/setup-k6-action@v1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate && pnpm build
+      - name: Start API + worker
+        run: |
+          pnpm start:api > api.log 2>&1 &
+          pnpm start:worker > worker.log 2>&1 &
+          npx wait-on -t 60000 http://localhost:3000/healthz
+      - name: Quick spike (small, fixed thresholds)
+        run: pnpm load:spike --quick --out load-smoke.json
+      - name: Reconcile (0 oversells, 0 duplicates, Redis == Postgres)
+        run: pnpm reconcile --latest --wait-for-drain
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claim-smoke
+          path: |
+            load-smoke.json
+            api.log
+            worker.log
+
+  # Single required check for branch protection. Passes only if every job that ran passed.
+  ci-ok:
+    if: always()
+    needs: [verify, claim-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs passed
+        run: |
+          echo "verify=${{ needs.verify.result }} claim-smoke=${{ needs.claim-smoke.result }}"
+          [[ "${{ needs.verify.result }}" == "success" ]] || exit 1
+          [[ "${{ needs.claim-smoke.result }}" =~ ^(success|skipped)$ ]] || exit 1

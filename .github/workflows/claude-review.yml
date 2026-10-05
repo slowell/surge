@@ -1,0 +1,32 @@
+name: Claude review
+
+# AI review on every PR. Focus it on the risks that matter here instead of style nits.
+# Requires the ANTHROPIC_API_KEY repo secret. Verify inputs against the current
+# anthropics/claude-code-action README before enabling.
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this PR for Surge. Read CLAUDE.md and SPEC.md first.
+            Prioritize, in order:
+            1. Claim-path correctness: oversells, duplicate claims, idempotency, failure modes (use the invariants in .claude/agents/concurrency-reviewer.md).
+            2. Anything added to the /claim hot path (DB calls, extra round trips).
+            3. Missing tests for new behavior.
+            4. Mobile UI states (loading/empty/error/success) and truthful UI.
+            Skip formatting and style nits; lint covers those.
+            Post one summary comment: verdict, numbered findings with file:line, and missing tests.
