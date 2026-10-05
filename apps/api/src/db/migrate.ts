@@ -1,3 +1,13 @@
+// Minimal SQL migration runner.
+//
+// Layout: apps/api/migrations/NNNN_name.sql are pending (still editable on a branch);
+// apps/api/migrations/applied/NNNN_name.sql are promoted (`pnpm db:promote`) and immutable.
+// Both are applied together in filename order. A migration's identity is its filename, so promotion
+// (a rename) doesn't re-run it. The checksum makes "immutable" hold at runtime too: if an applied
+// file changes, migrate refuses to run anything.
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type pg from "pg";
 
 export interface MigrateOptions {
@@ -15,6 +25,93 @@ export class MigrationError extends Error {
   override name = "MigrationError";
 }
 
-export function migrate(_client: pg.Client, _opts: MigrateOptions): Promise<MigrateResult> {
-  return Promise.reject(new Error("not implemented"));
+const MIGRATION_FILE = /^\d{4}_[a-z0-9_]+\.sql$/;
+// Arbitrary constant: serializes concurrent `migrate` runs (e.g. API boot and CI) on the same database.
+const LOCK_KEY = 72_610_001;
+
+interface MigrationFile {
+  name: string;
+  file: string;
+  sql: string;
+  checksum: string;
+}
+
+function listDir(dir: string): string[] {
+  return existsSync(dir) ? readdirSync(dir).filter((f) => MIGRATION_FILE.test(f)) : [];
+}
+
+export function readMigrations(dir: string): MigrationFile[] {
+  const appliedDir = path.join(dir, "applied");
+  const promoted = listDir(appliedDir);
+  const pending = listDir(dir);
+
+  const both = pending.filter((f) => promoted.includes(f));
+  if (both.length > 0) {
+    throw new MigrationError(`Migration in both pending and applied/: ${both.join(", ")}. Keep only one copy.`);
+  }
+
+  return [...promoted.map((f) => path.join(appliedDir, f)), ...pending.map((f) => path.join(dir, f))]
+    .map((file) => {
+      // Normalize line endings so a CRLF checkout on Windows has the same checksum as LF.
+      const sql = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+      return { name: path.basename(file), file, sql, checksum: createHash("sha256").update(sql).digest("hex") };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function migrate(
+  client: pg.Client,
+  { dir, log = () => undefined }: MigrateOptions,
+): Promise<MigrateResult> {
+  const files = readMigrations(dir);
+
+  await client.query("SELECT pg_advisory_lock($1)", [LOCK_KEY]);
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        name text PRIMARY KEY,
+        checksum text NOT NULL,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )`);
+    const { rows } = await client.query<{ name: string; checksum: string }>(
+      "SELECT name, checksum FROM schema_migrations ORDER BY name",
+    );
+    const recorded = new Map(rows.map((r) => [r.name, r.checksum]));
+    const byName = new Map(files.map((f) => [f.name, f]));
+
+    // Verify everything first, so a bad history never results in a partial run.
+    for (const [name, checksum] of recorded) {
+      const file = byName.get(name);
+      if (!file) {
+        throw new MigrationError(`${name} was applied to this database but its file is missing.`);
+      }
+      if (file.checksum !== checksum) {
+        throw new MigrationError(
+          `${name} has changed since it was applied. Applied migrations are immutable: revert the edit and write a new migration.`,
+        );
+      }
+    }
+
+    const result: MigrateResult = { applied: [], alreadyApplied: [] };
+    for (const m of files) {
+      if (recorded.has(m.name)) {
+        result.alreadyApplied.push(m.name);
+        continue;
+      }
+      try {
+        await client.query("BEGIN");
+        await client.query(m.sql);
+        await client.query("INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)", [m.name, m.checksum]);
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw new MigrationError(`${m.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      log(`applied ${m.name}`);
+      result.applied.push(m.name);
+    }
+    return result;
+  } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]);
+  }
 }
