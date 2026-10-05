@@ -8,14 +8,14 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 |---|---|
 | Calendar days | 1 |
 | Focused hours (human) | TODO |
-| Commits | 4 (on main) |
+| Commits | 6 (on main) |
 | Commits primarily agent-written / human-rewritten | TODO |
 | Bugs caught by hooks | 0 |
-| Bugs caught by tests | 0 |
+| Bugs caught by tests | 1 |
 | Bugs caught by reviewer subagents | 0 |
 | Bugs that escaped to a manual test | 0 |
 | Parallel sessions (worktrees) used | 0 |
-| PRs merged / PRs blocked by a gate before merge | 3 / 0 |
+| PRs merged / PRs blocked by a gate before merge | 5 / 0 |
 
 ## Setup
 
@@ -70,3 +70,20 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 **Open issues:**
 - `branch-guard.mjs:13` blocks any Bash command containing a push and the word "main" anywhere. It falsely blocked a feature-branch push chained with `gh pr create --base main`, and a PR body that quoted a push command. Worked around by splitting commands; hook unchanged.
 - Hooks allow the edit on malformed input (see above).
+
+### 2026-10-05: branch-guard precision, fail-closed guards, hook tests  (TODO)
+**Shipped:** PR (this branch). `branch-guard.mjs` now inspects only real git commands: a new `_shell.mjs` splits on `&&` `||` `;` `|` `&` newlines and subshells, honoring quotes, comments, redirections, and heredoc bodies. It blocks pushes that target main/master (`main`, `origin main`, `HEAD:main`, `refs/heads/main`, `+main`, `:main`, `--all`/`--mirror`), and bare `git push` / `git push origin` / `HEAD` pushes while on main. The commit-on-main and `--no-verify` checks run per command. PreToolUse guards fail closed: a missing or invalid payload, or one with no command/file path, is blocked. PostToolUse checks still skip. 144 tests with `node:test` in `.claude/hooks/tests/`.
+**Delegated to Claude:** All of the above, developed and tested in a scratch copy before going live.
+**Human directed / rewrote:** Specified the push rules, fail-closed behavior, and test coverage.
+**Implementation calls (review):**
+- `git switch`/`checkout` earlier in the same call updates the branch the later checks use, so `git switch main && git commit` is caught.
+- `--all`/`--mirror`/`--branches` are blocked because they push main too.
+- `git push -n` is no longer treated as `--no-verify` (for push, `-n` is a dry run); `git commit -n` and clusters like `-nm` still are.
+- `editedFile` uses Windows path rules for a Windows project root on any OS, so the Windows-path tests also run on Linux CI.
+**Caught by guardrails / tests:** Running the new tests against the old hooks failed 38 of 144. Besides the known false positives and fail-open behavior, they found that the old guard used `git rev-parse --abbrev-ref HEAD`, which fails in a repo with no commits, so commits there weren't blocked → now `git symbolic-ref`.
+**Claim-path changes:** none
+**Review by hand:** `_shell.mjs` is a partial shell parser; its known gaps are `$(...)` inside double quotes, `eval`, git aliases, and scripts run from the command.
+**Open issues:**
+- **M0: add `"test:hooks": "node --test \".claude/hooks/tests/*.test.mjs\""` to the root package.json and run it as part of `pnpm test`.** It needs the glob; Node 24 rejects a directory argument.
+- `.claude/settings.json` denies `Edit(./.env.*)`, which also matches `.env.example`, so the permission layer still blocks what the hook now allows.
+- Resolved: the branch-guard false positives and fail-open-on-malformed-input issues from the previous entry.
