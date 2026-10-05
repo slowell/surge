@@ -8,14 +8,14 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 |---|---|
 | Calendar days | 1 |
 | Focused hours (human) | TODO |
-| Commits | 6 (on main) |
+| Commits | 7 (on main) |
 | Commits primarily agent-written / human-rewritten | TODO |
 | Bugs caught by hooks | 0 |
 | Bugs caught by tests | 1 |
 | Bugs caught by reviewer subagents | 0 |
 | Bugs that escaped to a manual test | 0 |
 | Parallel sessions (worktrees) used | 0 |
-| PRs merged / PRs blocked by a gate before merge | 5 / 0 |
+| PRs merged / PRs blocked by a gate before merge | 6 / 0 |
 
 ## Setup
 
@@ -87,3 +87,16 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 - **M0: add `"test:hooks": "node --test \".claude/hooks/tests/*.test.mjs\""` to the root package.json and run it as part of `pnpm test`.** It needs the glob; Node 24 rejects a directory argument.
 - `.claude/settings.json` denies `Edit(./.env.*)`, which also matches `.env.example`, so the permission layer still blocks what the hook now allows.
 - Resolved: the branch-guard false positives and fail-open-on-malformed-input issues from the previous entry.
+
+### 2026-10-05: narrow .env permission deny rules  (TODO)
+**Shipped:** PR (this branch). `.claude/settings.json` denied `Read(./.env.*)` and `Edit(./.env.*)`, which also matched `.env.example`. Deny always wins, so the hook's `.env.example` exception never took effect. The deny rules now cover `**/.env`, `**/.env.local`, `**/.env.*.local`, and `**/.env.production` for both Read and Edit.
+**Delegated to Claude:** The settings change and verification.
+**Human directed / rewrote:** Specified the problem, the files to deny, and the layering.
+**How the layers fit:**
+- **Permissions (settings.json):** coarse globs for the real secret files. They stop Read and Edit before any hook runs, and deny always wins, so they must never match a file the agent is meant to edit.
+- **Hook (`guard-protected-files.mjs`):** precise matching for edits. It blocks every `.env*` at any depth except `.env.example`, plus lockfiles, applied migrations, and load results. It fails closed on a bad payload.
+**Verified (live Read calls):** Before the change, reading `.env.example` was denied. After: `.env.example` read succeeds; `.env`, `apps/api/.env`, `apps/mobile/.env.development.local`, and `.env.production` are denied. None of those four exist, and a missing file the rules don't cover (`apps/api/.env.test`) returns "does not exist" instead, so the denials come from the rules.
+**Claim-path changes:** none
+**Review by hand:** Whether the deny list should also include `.env.development` and `.env.test`. They aren't denied for Read now, though the hook still blocks edits to them.
+**Open issues:**
+- Read deny rules don't cover Bash (`cat .env`). Only the agent's instructions prevent that.
