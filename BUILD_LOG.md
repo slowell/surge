@@ -4,18 +4,18 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 
 ## Running totals
 
-| Metric                                            | Value       |
-| ------------------------------------------------- | ----------- |
-| Calendar days                                     | 1           |
-| Focused hours (human)                             | TODO        |
-| Commits                                           | 8 (on main) |
-| Commits primarily agent-written / human-rewritten | TODO        |
-| Bugs caught by hooks                              | 0           |
-| Bugs caught by tests                              | 1           |
-| Bugs caught by reviewer subagents                 | 0           |
-| Bugs that escaped to a manual test                | 0           |
-| Parallel sessions (worktrees) used                | 0           |
-| PRs merged / PRs blocked by a gate before merge   | 7 / 0       |
+| Metric                                            | Value                                     |
+| ------------------------------------------------- | ----------------------------------------- |
+| Calendar days                                     | 1                                         |
+| Focused hours (human)                             | TODO                                      |
+| Commits                                           | 9 on main + 27 on `m0/scaffold` (PR open) |
+| Commits primarily agent-written / human-rewritten | TODO                                      |
+| Bugs caught by hooks                              | 3                                         |
+| Bugs caught by tests                              | 2                                         |
+| Bugs caught by reviewer subagents                 | 9                                         |
+| Bugs that escaped to a manual test                | 1                                         |
+| Parallel sessions (worktrees) used                | 0                                         |
+| PRs merged / PRs blocked by a gate before merge   | 7 / 0                                     |
 
 ## Setup
 
@@ -124,3 +124,96 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 **Verified (live Read calls):** `apps/api/.env.test` and `.env.staging` are now denied (`apps/api/.env.test` returned "does not exist" before this change); `.env.example` is still readable.
 **Claim-path changes:** none
 **Open issues:** none new. The Bash gap from the previous entry is now an accepted risk.
+
+### 2026-10-05: M0 monorepo scaffold (commits 16:41–18:05; session times TODO)
+
+**Shipped:** branch `m0/scaffold`, 27 commits.
+
+- pnpm workspace with strict TypeScript 6.0, type-checked ESLint, Prettier, and Vitest projects (unit / integration / concurrency).
+- docker-compose: Postgres 16 and Redis 7 with AOF.
+- `@surge/shared` zod contract.
+- Plain-SQL migration runner with checksums, `0001_init` and `0002_scope_idempotency_key`, seed, and `db:promote`.
+- Fastify API with zod config and `/healthz` (200/503).
+- Worker stub that leaves jobs waiting.
+- Expo SDK 57 scaffold.
+- `scripts/readonly-role.sql` for the MCP role.
+- `load:spike` and `reconcile` stubs that exit 0.
+- `test:hooks` runs inside `pnpm test`.
+- CI on Node 24.
+
+Tests: 76 vitest + 144 hook tests (`pnpm test`), 2 in `pnpm test:concurrency`.
+
+**Delegated to Claude:** all code, tests, and docs above.
+
+**Human directed:**
+
+- Cross-platform scripts.
+- Node 24.
+- The migration convention.
+- The 30-minute Expo timebox.
+- The Docker-down error message.
+- No `.claude/` changes.
+- Idempotency scope: per (drop, member).
+- Using 0002 rather than editing the promoted 0001.
+
+**Caught by guardrails:**
+
+- **Typecheck hook:**
+  - Fastify `loggerInstance` generic mismatch in `app.ts`. Fixed by typing the logger as `FastifyBaseLogger`.
+- **Lint hook:**
+  - BullMQ `job.data` typed `any` in the worker. Fixed with `Worker<FulfillmentJob>`.
+  - `any`-typed Fastify instance and an `async` callback with no `await` in the health tests. Fixed.
+- **Tests:**
+  - Claude's own race tests deadlocked: they asked a blocked connection for its pid. Moved the pid lookup before the block.
+  - Mutation check: both race tests fail without `FOR SHARE`.
+- **Permission deny rule:**
+  - Blocked Claude's `touch .env.local` in a scratch repo while testing the env-commit check. Claude didn't work around it and unit-tested the matcher instead.
+- **Runner checksum:**
+  - Refused the pending 0002 on local `surge_test` after it was edited. The test DB was dropped and recreated.
+- **Found by Claude:**
+  - lefthook's inline `sh -c` checks fail to parse on Windows ("syntax error: unexpected end of file"). The pre-commit secrets check blocked every commit, and pre-push had the same shape. Moved both into Node scripts with the same logic.
+- **Escaped to a manual run:**
+  - `pnpm db:seed` failed after 0002, because re-seeding moved the live drop's `starts_at`. Seed now refreshes only drops that haven't started.
+
+**SPEC bug caught in review:**
+
+- SPEC §5 `unique(idempotency_key)` and §6 `idem:{key}` were global, though the key is client-generated. Member B reusing A's key would either read A's result or never reach Postgres.
+- Now scoped to `(drop_id, member_id, idempotency_key)` and `idem:{dropId}:{memberId}:{key}`.
+- Tests cover the change, and SPEC §5–7 are updated.
+
+**Reviewer (`concurrency-reviewer`, 2 passes, no critical findings):**
+
+- **Fixed:**
+  - The idempotency key scope (HIGH, above).
+  - The `total_qty` race: FOR SHARE lock, plus `total_qty` and `starts_at` frozen once live.
+  - Worker stub: no consumer, so jobs aren't parked as failed.
+  - Test Redis isolated (db 15); tests read only `TEST_*` URLs.
+  - 500ms Redis `commandTimeout`.
+  - Migrator: out-of-order migrations, bounded lock wait, error masking.
+  - CI sets `TEST_*`.
+- **Deferred to M1 acceptance criteria:**
+  - Lua-commit → enqueue gap: write a fulfillment record inside `claim.lua` or re-enqueue on idempotent hits; map timeouts to 429/503.
+  - Worker idempotency pattern: `ON CONFLICT (drop_id, member_id)`, then verify position and key.
+  - HTTP-level race tests: a real server with an undici pool.
+  - The reviewer's 10 missing-test scenarios.
+  - Keep the worker off the `drops` row (lock-upgrade deadlock).
+
+**Process lesson:** Claude ran `db:promote` before the reviewer pass, so the HIGH schema fix had to become migration 0002 instead of an edit to 0001. CLAUDE.md now says to promote only after reviewer passes, as the final commit before the PR.
+
+**Claim-path changes:**
+
+- `apps/api/src/claims/keys.ts` (Redis key builders, no inventory logic). `pnpm test:concurrency` passed via the claim-path hook, and the reviewer verified it.
+- `test:concurrency` is still a harness only; the claim tests arrive in M1.
+
+**Review by hand:**
+
+- The 0001 and 0002 triggers.
+- The test-only guarded decrement in `harness.test.ts`, which is not the claim script.
+- The Prettier-only reformat of SPEC, README, BUILD_LOG, and `ci.yml`.
+- The redundant `UNIQUE (drop_id, member_id, idempotency_key)` (kept as a documented choice).
+
+**Open issues:**
+
+- `load:spike` and `reconcile` are stubs, so claim-smoke proves wiring only.
+- A local node process holds `[::]:3000`, so use `127.0.0.1:3000`.
+- `scripts/protect-main.sh` hasn't run yet; it needs one green CI run first.
