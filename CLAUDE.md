@@ -32,7 +32,7 @@ pnpm test:hooks               # .claude/hooks node:test suite
 pnpm test:concurrency         # claim race tests (must pass before any claim-path change is done)
 pnpm build && pnpm start:api / start:worker   # production-mode boot (used by CI claim-smoke)
 
-pnpm db:promote               # move pending migrations into migrations/applied/ (last commit before a PR)
+pnpm db:promote               # move pending migrations into migrations/applied/ (after reviewers; final commit before a PR)
 pnpm db:readonly-role         # (re)apply scripts/readonly-role.sql to an existing database
 
 pnpm load:spike --quick       # STUB until M1 (exits 0). Then: small fixed spike with k6 thresholds
@@ -47,7 +47,7 @@ Integration and concurrency tests use `surge_test` on the docker-compose Postgre
 ## Migrations
 
 - Plain SQL, run by `apps/api/src/db/migrate.ts`. New migrations go in `apps/api/migrations/NNNN_name.sql` (pending), where you can still edit them on your branch.
-- As the last commit before opening the PR, run `pnpm db:promote`. It `git mv`s pending files into `apps/api/migrations/applied/`. This is the only sanctioned way into `applied/`; the guard hook blocks direct edits there.
+- Run `pnpm db:promote` **only after every reviewer pass is done and its findings are addressed**, as the final commit before opening the PR. It `git mv`s pending files into `apps/api/migrations/applied/`. This is the only sanctioned way into `applied/`; the guard hook blocks direct edits there. Promoting earlier means a review finding in the schema needs a new migration instead of an edit (this happened in M0: see BUILD_LOG).
 - A migration's identity is its filename, and the runner records a checksum. Editing an applied migration makes `pnpm db:migrate` refuse to run. To change the schema, write a new migration.
 
 ## How to work

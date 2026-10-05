@@ -86,36 +86,36 @@ flowchart LR
 
 ## 5. Data model (Postgres)
 
-| Table           | Columns                                                                                                                                                                | Notes                                                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `members`       | `id uuid pk`, `handle text unique`, `tier text`, `created_at`                                                                                                          | tier: `free` / `plus`                                                                                            |
-| `drops`         | `id uuid pk`, `title`, `sponsor`, `reward_name`, `reward_image_url`, `total_qty int`, `starts_at`, `ends_at`, `challenge jsonb`, `challenge_source text`, `created_at` | challenge: `{question, options[], answer_index}` (answer never sent to clients); source: `human` / `ai_assisted` |
-| `claims`        | `id uuid pk`, `drop_id fk`, `member_id fk`, `position int`, `idempotency_key text`, `created_at`                                                                       | `unique(drop_id, member_id)`, `unique(idempotency_key)`                                                          |
-| `points_ledger` | `id bigserial pk`, `member_id fk`, `delta int`, `reason text`, `ref_id uuid`, `created_at`                                                                             | append-only; balance = `sum(delta)`; `unique(reason, ref_id)` prevents double-award                              |
+| Table           | Columns                                                                                                                                                                | Notes                                                                                                                                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `members`       | `id uuid pk`, `handle text unique`, `tier text`, `created_at`                                                                                                          | tier: `free` / `plus`                                                                                                                                                                     |
+| `drops`         | `id uuid pk`, `title`, `sponsor`, `reward_name`, `reward_image_url`, `total_qty int`, `starts_at`, `ends_at`, `challenge jsonb`, `challenge_source text`, `created_at` | challenge: `{question, options[], answer_index}` (answer never sent to clients); source: `human` / `ai_assisted`                                                                          |
+| `claims`        | `id uuid pk`, `drop_id fk`, `member_id fk`, `position int`, `idempotency_key text`, `created_at`                                                                       | `unique(drop_id, member_id)`, `unique(drop_id, member_id, idempotency_key)` (keys are client-generated, so they're scoped per member and drop, never global); `unique(drop_id, position)` |
+| `points_ledger` | `id bigserial pk`, `member_id fk`, `delta int`, `reason text`, `ref_id uuid`, `created_at`                                                                             | append-only; balance = `sum(delta)`; `unique(reason, ref_id)` prevents double-award                                                                                                       |
 
 ## 6. Redis keys
 
-| Key                     | Type             | Purpose                                               |
-| ----------------------- | ---------------- | ----------------------------------------------------- |
-| `drop:{id}:meta`        | hash             | total, starts_at, ends_at (loaded when drop is armed) |
-| `drop:{id}:remaining`   | int              | inventory counter                                     |
-| `drop:{id}:claimed`     | set              | member ids who claimed                                |
-| `drop:{id}:lb`          | zset             | leaderboard for the drop (points)                     |
-| `lb:global`             | zset             | all-time points leaderboard                           |
-| `idem:{key}`            | string (TTL 24h) | cached claim response for idempotent retries          |
-| `admit:{drop}:{second}` | int (TTL 5s)     | admission counter for the waiting room                |
+| Key                              | Type             | Purpose                                                                                            |
+| -------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------- |
+| `drop:{id}:meta`                 | hash             | total, starts_at, ends_at (loaded when drop is armed)                                              |
+| `drop:{id}:remaining`            | int              | inventory counter                                                                                  |
+| `drop:{id}:claimed`              | set              | member ids who claimed                                                                             |
+| `drop:{id}:lb`                   | zset             | leaderboard for the drop (points)                                                                  |
+| `lb:global`                      | zset             | all-time points leaderboard                                                                        |
+| `idem:{dropId}:{memberId}:{key}` | string (TTL 24h) | cached claim response for idempotent retries, scoped so one member can never read another's result |
+| `admit:{drop}:{second}`          | int (TTL 5s)     | admission counter for the waiting room                                                             |
 
 ## 7. Claim algorithm (single Lua script)
 
 Inputs: drop id, member id, now, idempotency key.
 
-1. If `idem:{key}` exists → return the cached result.
+1. If `idem:{dropId}:{memberId}:{key}` exists → return the cached result.
 2. If now < starts_at → `NOT_OPEN`. If now > ends_at → `CLOSED`.
 3. If member ∈ `claimed` → `ALREADY_CLAIMED`.
 4. If `remaining` ≤ 0 → `SOLD_OUT`.
 5. `DECR remaining`, `SADD claimed member`, position = total − remaining.
 6. Points = earlier is better (e.g. `max(10, 100 − floor(position / (total/90)))`). `ZINCRBY` drop and global leaderboards.
-7. Cache result under `idem:{key}`; return `CLAIMED {position, points}`.
+7. Cache result under `idem:{dropId}:{memberId}:{key}`; return `CLAIMED {position, points}`.
 
 Then, outside the script: enqueue a fulfillment job `{dropId, memberId, position, points, idempotencyKey}`.
 
