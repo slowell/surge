@@ -1,8 +1,8 @@
 // PreToolUse: refuse edits to secrets, lockfiles, migrations already applied, and recorded load-test results.
-import { readHookInput, editedFile, block } from "./_input.mjs";
+import { readHookInputOrBlock, editedFile, block } from "./_input.mjs";
 
-const file = editedFile(readHookInput());
-if (!file) process.exit(0);
+const file = editedFile(readHookInputOrBlock("guard-protected-files"));
+if (!file) block("Blocked by guard-protected-files: the hook payload had no file path, so this edit could not be checked.");
 
 const rules = [
   [/(^|\/)\.env(?!\.example$)(\..+)?$/, "Secrets live in .env and are never edited by the agent. Update .env.example instead."],
