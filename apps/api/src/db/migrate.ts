@@ -59,13 +59,27 @@ export function readMigrations(dir: string): MigrationFile[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const LOCK_WAIT_MS = 30_000;
+
+async function acquireLock(client: pg.Client): Promise<void> {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    const { rows } = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK_KEY]);
+    if (rows[0]?.ok) return;
+    if (Date.now() > deadline) {
+      throw new MigrationError(`Another migrate run has held the lock for over ${LOCK_WAIT_MS / 1000}s. Giving up.`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
 export async function migrate(
   client: pg.Client,
   { dir, log = () => undefined }: MigrateOptions,
 ): Promise<MigrateResult> {
   const files = readMigrations(dir);
 
-  await client.query("SELECT pg_advisory_lock($1)", [LOCK_KEY]);
+  await acquireLock(client);
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -92,6 +106,16 @@ export async function migrate(
       }
     }
 
+    // A new file numbered below the latest applied one (e.g. two branches both added a migration) would run
+    // out of order against a schema it was never written for. Make the author renumber it.
+    const latest = [...recorded.keys()].sort().at(-1);
+    const outOfOrder = files.filter((f) => !recorded.has(f.name) && latest !== undefined && f.name < latest);
+    if (outOfOrder.length > 0) {
+      throw new MigrationError(
+        `${outOfOrder.map((f) => f.name).join(", ")} sorts before already-applied ${latest}. Renumber it after ${latest}.`,
+      );
+    }
+
     const result: MigrateResult = { applied: [], alreadyApplied: [] };
     for (const m of files) {
       if (recorded.has(m.name)) {
@@ -104,7 +128,8 @@ export async function migrate(
         await client.query("INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)", [m.name, m.checksum]);
         await client.query("COMMIT");
       } catch (err) {
-        await client.query("ROLLBACK");
+        // Report the migration's error, not a secondary ROLLBACK failure (e.g. a dropped connection).
+        await client.query("ROLLBACK").catch(() => undefined);
         throw new MigrationError(`${m.name} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       log(`applied ${m.name}`);

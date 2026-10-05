@@ -113,6 +113,15 @@ describe("migrate", () => {
     expect(recorded.rows).toEqual([{ name: "0001_a.sql" }]);
   });
 
+  it("refuses a new migration numbered before an applied one", async () => {
+    write("applied/0002_b.sql", "CREATE TABLE b (id int);");
+    await migrate(client, { dir });
+    write("0001_late.sql", "CREATE TABLE late (id int);");
+
+    await expect(migrate(client, { dir })).rejects.toThrow(/0001_late\.sql sorts before already-applied 0002_b\.sql/);
+    expect(await tables()).not.toContain("late");
+  });
+
   it("ignores files that don't look like migrations", async () => {
     write("applied/0001_a.sql", "CREATE TABLE a (id int);");
     write("README.md", "notes");
