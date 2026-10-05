@@ -52,7 +52,7 @@ A brand/admin user creates drops: title, sponsor, reward, quantity, start/end ti
 ```
 apps/
   mobile/        Expo + expo-router, TypeScript
-  api/           Node 20, Fastify, TypeScript
+  api/           Node 24, Fastify, TypeScript
   admin/         Minimal web admin (optional; Vite + React)
 packages/
   shared/        zod schemas + shared types (API contract)
