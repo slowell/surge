@@ -18,9 +18,18 @@
 
 ## Quick start
 
+Needs Node 24, pnpm 10, and Docker. Works the same in PowerShell, cmd, and bash.
+
 ```
-docker compose up -d && pnpm install && pnpm db:migrate && pnpm db:seed && pnpm dev
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+docker compose up -d
+pnpm install
+pnpm db:migrate
+pnpm db:seed
+pnpm dev                      # API on :3000, worker, and Expo (press w for web)
 ```
+
+Check it: `curl http://127.0.0.1:3000/healthz` → `{"status":"ok",...}`. Run the tests with `pnpm test` and `pnpm test:concurrency`.
 
 ## Architecture
 

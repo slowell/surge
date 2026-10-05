@@ -15,22 +15,40 @@ The audience is a hiring manager who will spend ~5 minutes on it. Correctness un
 
 ## Commands
 
-(Set these up in Milestone 0 and keep this section accurate.)
+Keep this section accurate. Every pnpm script is cross-platform (PowerShell, cmd, bash): no bash-only syntax; use cross-env for env vars.
 
 ```
-docker compose up -d        # postgres + redis
-pnpm install
-pnpm dev                    # api + worker + mobile
-pnpm test                   # all unit + integration tests
-pnpm test:concurrency       # claim race tests (must pass before any claim-path change is done)
+# First time: the human creates .env (the agent can't write env files)
+Copy-Item .env.example .env   # PowerShell;  cp .env.example .env on macOS/Linux
+docker compose up -d          # postgres 16 + redis 7 (AOF); creates surge_readonly on a fresh volume
+pnpm install                  # also installs lefthook git hooks
 pnpm db:migrate && pnpm db:seed
-pnpm load:spike             # k6 spike test (needs tokens: pnpm load:tokens)
-pnpm reconcile <dropId>     # verify Redis == Postgres after a drop
-scripts/worktrees.sh        # create parallel api/mobile worktrees for M2
+
+pnpm dev                      # api + worker + mobile (Expo)
+pnpm typecheck                # every package, plus scripts/
+pnpm lint
+pnpm test                     # unit + integration (needs docker) + test:hooks
+pnpm test:hooks               # .claude/hooks node:test suite
+pnpm test:concurrency         # claim race tests (must pass before any claim-path change is done)
 pnpm build && pnpm start:api / start:worker   # production-mode boot (used by CI claim-smoke)
-pnpm load:spike --quick     # small fixed spike with k6 thresholds (CI + /claim-change)
-pnpm reconcile --latest --wait-for-drain       # CI form of reconcile
+
+pnpm db:promote               # move pending migrations into migrations/applied/ (last commit before a PR)
+pnpm db:readonly-role         # (re)apply scripts/readonly-role.sql to an existing database
+
+pnpm load:spike --quick       # STUB until M1 (exits 0). Then: small fixed spike with k6 thresholds
+pnpm load:spike               # STUB until M1. Then: k6 spike test (needs tokens: pnpm load:tokens, M1)
+pnpm reconcile <dropId>       # STUB until M1 (exits 0). Then: verify Redis == Postgres after a drop
+pnpm reconcile --latest --wait-for-drain       # CI form of reconcile (STUB until M1)
+scripts/worktrees.sh          # create parallel api/mobile worktrees for M2 (bash: run from Git Bash on Windows)
 ```
+
+Integration and concurrency tests use `surge_test` on the docker-compose Postgres (created automatically) and never read `.env`. If Docker isn't running, they fail once with "Start Docker Desktop and run docker compose up -d."
+
+## Migrations
+
+- Plain SQL, run by `apps/api/src/db/migrate.ts`. New migrations go in `apps/api/migrations/NNNN_name.sql` (pending), where you can still edit them on your branch.
+- As the last commit before opening the PR, run `pnpm db:promote`. It `git mv`s pending files into `apps/api/migrations/applied/`. This is the only sanctioned way into `applied/`; the guard hook blocks direct edits there.
+- A migration's identity is its filename, and the runner records a checksum. Editing an applied migration makes `pnpm db:migrate` refuse to run. To change the schema, write a new migration.
 
 ## How to work
 
