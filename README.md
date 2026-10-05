@@ -31,7 +31,7 @@ docker compose up -d && pnpm install && pnpm db:migrate && pnpm db:seed && pnpm 
 I build with Claude Code daily. This repo shows the workflow, not just the output.
 
 - **Rules, not reminders.** `CLAUDE.md` holds project memory. Hooks in `.claude/settings.json` *enforce* quality: protected files can't be edited, every edit is typechecked and linted, and any change to the claim path runs the concurrency suite automatically.
-- **Separate builder from reviewer.** Read-only subagents in `.claude/agents/` attack the work: an adversarial `concurrency-reviewer`, a `ui-states-reviewer`, and a `load-test-analyst`.
+- **Separate builder from reviewer.** Subagents in `.claude/agents/` with no edit tools attack the work (Bash, where granted, is only for running tests and reading output): an adversarial `concurrency-reviewer`, a `ui-states-reviewer`, and a `load-test-analyst`.
 - **Repeatable workflows.** Skills in `.claude/skills/` encode how work gets done: `/milestone`, `/claim-change`, `/load-run`, `/log-session`.
 - **Nothing merges on trust.** Four merge gates: local hooks, CI, a claim-path smoke test that boots the real API, spikes it, and reconciles, then branch protection requiring all of it. The agent can't touch `main`, merge, or skip a check.
 - **Parallel lanes.** The API and mobile app were built in two simultaneous Claude Code sessions using git worktrees, kept safe by a shared zod contract.

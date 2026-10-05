@@ -231,7 +231,7 @@ The repo itself demonstrates how the work was done. Reviewers should be able to 
 |---|---|---|
 | Project memory | `CLAUDE.md` | Rules the agent always follows: stack, conventions, claim-path rules, branding, scope |
 | Skills | `.claude/skills/` | `/milestone` (plan → tests first → build → review → log), `/claim-change` (required procedure for the riskiest code), `/load-run` (reproducible spike test + evidence), `/log-session` |
-| Reviewer subagents | `.claude/agents/` | Read-only specialists with their own context: `concurrency-reviewer` (adversarial), `ui-states-reviewer`, `load-test-analyst`. Building and reviewing are deliberately separate. |
+| Reviewer subagents | `.claude/agents/` | Specialists with their own context and no edit tools (the two with Bash use it only to run tests and read output): `concurrency-reviewer` (adversarial), `ui-states-reviewer`, `load-test-analyst`. Building and reviewing are deliberately separate. |
 | Hooks | `.claude/settings.json`, `.claude/hooks/` | Deterministic guardrails: block edits to secrets/lockfile/applied migrations/results; typecheck + lint after every edit; concurrency suite after every claim-path edit. Enforced, not requested. |
 | Permissions | `.claude/settings.json` | Allow routine commands; deny reading `.env`, force push, `rm -rf` |
 | MCP | `.mcp.json` | Read-only Postgres access (via `DATABASE_URL_READONLY`, a SELECT-only role) for debugging and reconciliation |
