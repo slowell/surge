@@ -9,7 +9,7 @@ const pkgMatch = file.match(/^(apps|packages)\/([^/]+)\//);
 if (!pkgMatch) process.exit(0);
 const pkgDir = `${pkgMatch[1]}/${pkgMatch[2]}`;
 
-const run = (cmd, args) => spawnSync(cmd, args, { encoding: "utf8", cwd: process.env.CLAUDE_PROJECT_DIR });
+const run = (cmd, args) => spawnSync(cmd, args, { encoding: "utf8", cwd: process.env.CLAUDE_PROJECT_DIR, shell: process.platform === "win32" });
 
 const tsc = run("pnpm", ["--dir", pkgDir, "exec", "tsc", "--noEmit", "--pretty", "false"]);
 if (tsc.status !== 0) {
