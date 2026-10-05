@@ -1,5 +1,6 @@
 // `pnpm db:seed`: demo members and drops. Idempotent: fixed ids, so re-running inserts nothing new.
-// Re-running does refresh drop time windows relative to now, so there's always a live and an upcoming drop.
+// Re-running refreshes the time windows of drops that haven't started yet. A started drop's window is frozen
+// (migration 0002), so it's left alone; reset the database for fresh demo times.
 // All sponsors and rewards are invented (CLAUDE.md branding rules).
 import { CreateDropRequest } from "@surge/shared";
 import pg from "pg";
@@ -70,14 +71,18 @@ try {
     ]);
   }
 
+  const outcome = { inserted: 0, refreshed: 0, keptStarted: 0 };
   for (const d of drops) {
     // Seed data goes through the same contract as POST /admin/drops.
     const drop = CreateDropRequest.parse(d.input);
     const { question, options, answerIndex } = drop.challenge;
-    await client.query(
+    const { rows } = await client.query<{ inserted: boolean }>(
       `INSERT INTO drops (id, title, sponsor, reward_name, reward_image_url, total_qty, starts_at, ends_at, challenge, challenge_source)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (id) DO UPDATE SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at`,
+       ON CONFLICT (id) DO UPDATE SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at
+         -- A started drop's window is frozen (migration 0002), so only refresh drops that haven't started.
+         WHERE drops.starts_at > now()
+       RETURNING (xmax = 0) AS inserted`,
       [
         d.id,
         drop.title,
@@ -91,10 +96,17 @@ try {
         drop.challengeSource,
       ],
     );
+    const row = rows[0];
+    if (!row) outcome.keptStarted++;
+    else if (row.inserted) outcome.inserted++;
+    else outcome.refreshed++;
   }
 
   await client.query("COMMIT");
-  console.log(`Seeded ${members.length} members and ${drops.length} drops (time windows refreshed).`);
+  console.log(
+    `Seeded ${members.length} members. Drops: ${outcome.inserted} inserted, ${outcome.refreshed} refreshed, ` +
+      `${outcome.keptStarted} already started (window frozen; reset the database for fresh demo times).`,
+  );
 } catch (err) {
   await client.query("ROLLBACK").catch(() => undefined);
   console.error(`Seed failed: ${err instanceof Error ? err.message : String(err)}`);
