@@ -134,24 +134,64 @@ describe("drops.total_qty is frozen once a drop is live", () => {
     await expectPgError(setQty(d, 400), CHECK_VIOLATION);
   });
 
-  it("can't be lowered underneath an in-flight claim insert (the race from review)", async () => {
-    // T1 inserts a claim at position 480 and holds its transaction open; T2 lowers total_qty to 400.
-    // Without locking, both could commit, leaving a claim past total_qty.
+  it("can't move starts_at once the drop has started (would unfreeze total_qty)", async () => {
+    const d = await drop(500);
+    await expectPgError(
+      db.query("UPDATE drops SET starts_at = now() + interval '1 hour' WHERE id = $1", [d]),
+      CHECK_VIOLATION,
+    );
+  });
+
+  it("can move starts_at before the drop starts", async () => {
+    const d = await drop(500, "1 hour");
+    await expect(
+      db.query(
+        "UPDATE drops SET starts_at = now() + interval '2 hours', ends_at = now() + interval '3 hours' WHERE id = $1",
+        [d],
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  // The two interleavings from review. Each holds one transaction open, waits until Postgres reports the other
+  // blocked on a lock (not a sleep, so the test can't pass by accident), then commits.
+  async function blockedOnLock(pid: number) {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const { rows } = await db.query<{ wait: string | null }>(
+        "SELECT wait_event_type AS wait FROM pg_stat_activity WHERE pid = $1",
+        [pid],
+      );
+      if (rows[0]?.wait === "Lock") return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(`backend ${pid} never blocked on a lock`);
+  }
+  const settle = (p: Promise<unknown>) =>
+    p.then(
+      () => null,
+      (e: unknown) => e,
+    );
+  const insertAt = (c: pg.PoolClient, d: string, m: string, position: number) =>
+    c.query("INSERT INTO claims (drop_id, member_id, position, idempotency_key) VALUES ($1, $2, $3, $4)", [
+      d,
+      m,
+      position,
+      randomUUID(),
+    ]);
+  const backendPid = async (c: pg.PoolClient) =>
+    (await c.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]?.pid ?? -1;
+
+  it("claim insert first, then lowering total_qty: the lowering waits and is rejected", async () => {
     const [d, m] = await Promise.all([drop(500, "1 hour"), member()]);
     const t1 = await db.connect();
     const t2 = await db.connect();
+    // Read the pid before T2 blocks: a query sent to a blocked connection would queue behind its UPDATE.
+    const t2Pid = await backendPid(t2);
     try {
       await t1.query("BEGIN");
-      await t1.query("INSERT INTO claims (drop_id, member_id, position, idempotency_key) VALUES ($1, $2, 480, $3)", [
-        d,
-        m,
-        randomUUID(),
-      ]);
-      const lowering = t2.query("UPDATE drops SET total_qty = 400 WHERE id = $1", [d]).then(
-        () => null,
-        (e: unknown) => e,
-      );
-      await new Promise((r) => setTimeout(r, 200)); // T2 is now blocked on T1's FOR SHARE row lock
+      await insertAt(t1, d, m, 480);
+      const lowering = settle(t2.query("UPDATE drops SET total_qty = 400 WHERE id = $1", [d]));
+      await blockedOnLock(t2Pid); // T2 waits on T1's FOR SHARE row lock
       await t1.query("COMMIT");
 
       expect(pgCode(await lowering)).toBe(CHECK_VIOLATION);
@@ -159,6 +199,28 @@ describe("drops.total_qty is frozen once a drop is live", () => {
       expect(rows[0]?.total_qty).toBe(500);
     } finally {
       await t1.query("ROLLBACK").catch(() => undefined);
+      t1.release();
+      t2.release();
+    }
+  });
+
+  it("lowering total_qty first, then a claim insert: the insert waits and is rejected", async () => {
+    const [d, m] = await Promise.all([drop(500, "1 hour"), member()]);
+    const t1 = await db.connect();
+    const t2 = await db.connect();
+    const t1Pid = await backendPid(t1);
+    try {
+      await t2.query("BEGIN");
+      await t2.query("UPDATE drops SET total_qty = 400 WHERE id = $1", [d]); // allowed: not started, no claims
+      const inserting = settle(insertAt(t1, d, m, 480));
+      await blockedOnLock(t1Pid); // T1's FOR SHARE waits on T2's row lock, then re-reads 400
+      await t2.query("COMMIT");
+
+      expect(pgCode(await inserting)).toBe(CHECK_VIOLATION);
+      const { rows } = await db.query("SELECT 1 FROM claims WHERE drop_id = $1", [d]);
+      expect(rows).toHaveLength(0);
+    } finally {
+      await t2.query("ROLLBACK").catch(() => undefined);
       t1.release();
       t2.release();
     }

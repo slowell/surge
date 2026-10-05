@@ -13,7 +13,12 @@ ALTER TABLE claims
 -- 2. The position trigger read drops.total_qty without a lock, so a concurrent decrease of total_qty could
 --    commit alongside a claim past the new total. Now:
 --    a) the claims trigger reads total_qty FOR SHARE, which conflicts with a concurrent UPDATE of the row, and
---    b) total_qty can't change once a drop has started or has any claims (Redis inventory is set at arm time).
+--    b) total_qty can't change once a drop has started or has any claims (Redis inventory is set at arm time),
+--       and starts_at can't change once the drop has started, so total_qty can't be unfrozen by first moving
+--       starts_at into the future while worker writes lag behind Redis.
+-- Both functions must stay VOLATILE (the default): each statement then takes a fresh snapshot after a lock wait,
+-- so the frozen check sees a claim committed while it waited. STABLE/IMMUTABLE would reuse the UPDATE's snapshot.
+-- Admin drop edits must run in READ COMMITTED (the default) for the same reason.
 CREATE OR REPLACE FUNCTION claims_position_within_total() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   qty int;
@@ -27,8 +32,12 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION drops_total_qty_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION drops_inventory_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF NEW.starts_at IS DISTINCT FROM OLD.starts_at AND OLD.starts_at <= now() THEN
+    RAISE EXCEPTION 'starts_at of drop % is frozen once the drop has started', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
   IF NEW.total_qty <> OLD.total_qty
      AND (OLD.starts_at <= now() OR EXISTS (SELECT 1 FROM claims WHERE drop_id = OLD.id)) THEN
     RAISE EXCEPTION 'total_qty of drop % is frozen once the drop has started or has claims', OLD.id
@@ -37,6 +46,6 @@ BEGIN
   RETURN NEW;
 END
 $$;
-CREATE TRIGGER drops_total_qty_frozen
-  BEFORE UPDATE OF total_qty ON drops
-  FOR EACH ROW EXECUTE FUNCTION drops_total_qty_frozen();
+CREATE TRIGGER drops_inventory_frozen
+  BEFORE UPDATE OF total_qty, starts_at ON drops
+  FOR EACH ROW EXECUTE FUNCTION drops_inventory_frozen();
