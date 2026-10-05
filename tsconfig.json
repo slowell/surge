@@ -1,0 +1,6 @@
+{
+  // Root-level config files only. Each package and scripts/ has its own tsconfig.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["vitest.config.ts"]
+}
