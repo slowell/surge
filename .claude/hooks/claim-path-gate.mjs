@@ -10,6 +10,7 @@ const res = spawnSync("pnpm", ["test:concurrency"], {
   encoding: "utf8",
   cwd: process.env.CLAUDE_PROJECT_DIR,
   timeout: 180_000,
+  shell: process.platform === "win32", // pnpm is pnpm.cmd on Windows
 });
 
 if (res.status !== 0) {
