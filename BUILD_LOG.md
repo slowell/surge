@@ -8,14 +8,14 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 |---|---|
 | Calendar days | 1 |
 | Focused hours (human) | TODO |
-| Commits | 7 (on main) |
+| Commits | 8 (on main) |
 | Commits primarily agent-written / human-rewritten | TODO |
 | Bugs caught by hooks | 0 |
 | Bugs caught by tests | 1 |
 | Bugs caught by reviewer subagents | 0 |
 | Bugs that escaped to a manual test | 0 |
 | Parallel sessions (worktrees) used | 0 |
-| PRs merged / PRs blocked by a gate before merge | 6 / 0 |
+| PRs merged / PRs blocked by a gate before merge | 7 / 0 |
 
 ## Setup
 
@@ -26,6 +26,14 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 - `.mcp.json`: read-only Postgres MCP for inspecting data during debugging and reconciliation
 - Merge gates: lefthook (local) → CI `verify` + `claim-smoke` (real API + k6 spike + reconcile on claim-path PRs) → required `ci-ok` → GitHub ruleset on main (PR-only, up to date, linear, no force push). The agent is blocked from committing/pushing to main, merging, or `--no-verify`.
 - Claude PR review on every PR
+
+## Accepted risks
+
+- **Bash can read env files.** The Read deny rules in `.claude/settings.json` cover the file tools, not shell commands such as `cat .env`. Accepted for now because:
+  - File-tool reads and edits of real env files are blocked by the permission deny rules, and edits also by `guard-protected-files.mjs`.
+  - CLAUDE.md forbids shell workarounds for protected files. Verified 2026-10-05: when asked to add a line to `.env`, the agent declined and didn't attempt it through the shell.
+  - No real secrets exist yet: there is no `.env` file, and `.env.example` holds only local placeholder values.
+  - Revisit before any real credential (e.g. `ANTHROPIC_API_KEY`) goes into a local env file.
 
 ---
 
@@ -100,3 +108,11 @@ How Surge was built with Claude Code: what was delegated, what was reviewed, and
 **Review by hand:** Whether the deny list should also include `.env.development` and `.env.test`. They aren't denied for Read now, though the hook still blocks edits to them.
 **Open issues:**
 - Read deny rules don't cover Bash (`cat .env`). Only the agent's instructions prevent that.
+
+### 2026-10-05: deny more env files, record accepted risk  (TODO)
+**Shipped:** PR (this branch). Added `**/.env.development`, `**/.env.test`, and `**/.env.staging` to the Read and Edit deny lists in `.claude/settings.json`. Added the "Accepted risks" section above, covering Bash reads of env files.
+**Delegated to Claude:** The settings change, verification, and log text.
+**Human directed / rewrote:** Chose the extra files and the accepted-risk reasoning.
+**Verified (live Read calls):** `apps/api/.env.test` and `.env.staging` are now denied (`apps/api/.env.test` returned "does not exist" before this change); `.env.example` is still readable.
+**Claim-path changes:** none
+**Open issues:** none new. The Bash gap from the previous entry is now an accepted risk.
