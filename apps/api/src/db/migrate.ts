@@ -137,6 +137,7 @@ export async function migrate(
     }
     return result;
   } finally {
-    await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]);
+    // On a dead connection this would throw and replace the real error; the lock dies with the session anyway.
+    await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]).catch(() => undefined);
   }
 }

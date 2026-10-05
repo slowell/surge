@@ -11,8 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # App processes (db:migrate, start:api, start:worker) read these.
   DATABASE_URL: postgres://postgres:postgres@localhost:5432/surge_test
   REDIS_URL: redis://localhost:6379
+  # Tests read only TEST_*; they ignore the app vars so a dev shell can't point them at dev data.
+  TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/surge_test
+  TEST_REDIS_URL: redis://localhost:6379/15
   JWT_SECRET: ci-secret
   ADMIN_TOKEN: ci-admin
 
