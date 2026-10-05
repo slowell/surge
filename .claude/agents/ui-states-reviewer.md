@@ -1,6 +1,6 @@
 ---
 name: ui-states-reviewer
-description: Product-quality reviewer for the Expo app. Use after building or changing any screen in apps/mobile. Checks every async state, copy, accessibility, and motion; never edits code.
+description: Product-quality reviewer for the Expo app. Use after building or changing any screen in apps/mobile. Checks every async state, copy, accessibility, and motion; has no edit tools and no Bash.
 tools: Read, Grep, Glob
 ---
 
