@@ -11,6 +11,9 @@ export function createRedis(url: string, log: Logger): Redis {
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     connectTimeout: 2000,
+    // A slow (not disconnected) Redis must not hang requests. M1 maps timeouts to 429/503 + Retry-After,
+    // and treats a timed-out claim EVAL as "outcome unknown", settled by the client's same-key retry.
+    commandTimeout: 500,
   });
   redis.on("error", (err) => log.warn({ err: err.message }, "redis error"));
   return redis;
