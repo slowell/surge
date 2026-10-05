@@ -1,8 +1,11 @@
 // Connection settings for integration and concurrency tests.
-// Tests never read .env. Without explicit env vars, they use the docker-compose defaults
-// and a dedicated surge_test database, so a test run can't touch dev data.
-export const testDatabaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/surge_test";
-export const testRedisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+// Tests never read .env, and deliberately ignore DATABASE_URL / REDIS_URL, so an exported dev URL in the
+// shell can't point tests at dev data. Override with TEST_DATABASE_URL / TEST_REDIS_URL. Defaults are the
+// docker-compose services, with a dedicated surge_test database and Redis logical db 15 (dev uses db 0),
+// so a running `pnpm dev` worker never sees test queues or keys.
+export const testDatabaseUrl =
+  process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/surge_test";
+export const testRedisUrl = process.env.TEST_REDIS_URL ?? "redis://localhost:6379/15";
 
 /** host:port only. Never print credentials. */
 export function endpoint(url: string): string {
