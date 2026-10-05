@@ -1,10 +1,15 @@
 // Fulfillment worker entry: `pnpm dev` (tsx watch) or `pnpm start:worker` (built dist/worker.js).
-// M0 stub: connects to the queue but doesn't fulfill yet. M1 writes the claim row + ledger entry here.
-import { FulfillmentJob } from "@surge/shared";
-import { UnrecoverableError, Worker } from "bullmq";
+// M0 stub: deliberately does NOT consume the fulfillment queue. A stub consumer would have to either ack jobs
+// (claims silently never written to Postgres) or fail them (claims parked in the failed set, needing a replay).
+// Leaving jobs in `waiting` means the M1 worker picks up anything enqueued earlier, with nothing to replay.
+// It connects and reports the backlog, so `start:worker` still proves the process boots and reaches Redis.
+// M1 replaces this with a BullMQ Worker that writes the claim row + ledger entry.
+import { Queue } from "bullmq";
 import { ConfigError, loadConfig } from "../config";
 import { createLogger } from "../logger";
 import { FULFILLMENT_QUEUE } from "./queue";
+
+const REPORT_EVERY_MS = 30_000;
 
 let config;
 try {
@@ -15,33 +20,29 @@ try {
 }
 
 const log = createLogger(config.LOG_LEVEL, "worker");
+// BullMQ builds its own connection. Don't reuse createRedis (the hot-path client fails fast; BullMQ must not).
+const queue = new Queue(FULFILLMENT_QUEUE, { connection: { url: config.REDIS_URL, maxRetriesPerRequest: null } });
+queue.on("error", (err) => log.warn({ err: err.message }, "queue error"));
 
-const worker = new Worker<FulfillmentJob>(
-  FULFILLMENT_QUEUE,
-  (job) => {
-    const parsed = FulfillmentJob.safeParse(job.data);
-    if (!parsed.success) throw new UnrecoverableError(`invalid fulfillment job: ${parsed.error.message}`);
-    // Fail, don't ack: a job acknowledged by a stub would be a claim silently never written to Postgres.
-    // Failed jobs stay in Redis and can be retried once M1 lands.
-    throw new UnrecoverableError("fulfillment not implemented until M1");
-  },
-  // BullMQ workers need maxRetriesPerRequest: null so blocking commands survive reconnects.
-  { connection: { url: config.REDIS_URL, maxRetriesPerRequest: null }, concurrency: 16 },
-);
-
-worker.on("ready", () => log.info({ queue: FULFILLMENT_QUEUE }, "worker ready"));
-worker.on("failed", (job, err) =>
-  log.error({ jobId: job?.id, dropId: job?.data?.dropId, err: err.message }, "job failed"),
-);
-worker.on("error", (err) => log.warn({ err: err.message }, "worker error"));
+async function report() {
+  try {
+    const counts = await queue.getJobCounts("waiting", "active", "failed");
+    log.info({ queue: FULFILLMENT_QUEUE, ...counts }, "stub worker: not consuming until M1");
+  } catch (err) {
+    log.warn({ err: err instanceof Error ? err.message : String(err) }, "could not read queue counts");
+  }
+}
+void report();
+const timer = setInterval(() => void report(), REPORT_EVERY_MS);
 
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info({ signal }, "shutting down");
+  clearInterval(timer);
   try {
-    await worker.close(); // waits for in-flight jobs
+    await queue.close();
   } finally {
     process.exit(0);
   }
