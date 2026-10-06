@@ -8,19 +8,28 @@
 
 ## Results at a glance
 
-| | |
-|---|---|
-| Peak arrival rate | TODO req/s |
-| `/claim` p95 under spike | TODO ms |
-| Oversells / duplicate claims | 0 / 0 (verified by reconcile on every run) |
-| Behavior past capacity | clean 429 + waiting room, 0 5xx |
-| Built in | TODO days with Claude Code (see [BUILD_LOG.md](BUILD_LOG.md)) |
+|                              |                                                               |
+| ---------------------------- | ------------------------------------------------------------- |
+| Peak arrival rate            | TODO req/s                                                    |
+| `/claim` p95 under spike     | TODO ms                                                       |
+| Oversells / duplicate claims | 0 / 0 (verified by reconcile on every run)                    |
+| Behavior past capacity       | clean 429 + waiting room, 0 5xx                               |
+| Built in                     | TODO days with Claude Code (see [BUILD_LOG.md](BUILD_LOG.md)) |
 
 ## Quick start
 
+Needs Node 24, pnpm 10, and Docker. Works the same in PowerShell, cmd, and bash.
+
 ```
-docker compose up -d && pnpm install && pnpm db:migrate && pnpm db:seed && pnpm dev
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+docker compose up -d
+pnpm install
+pnpm db:migrate
+pnpm db:seed
+pnpm dev                      # API on :3000, worker, and Expo (press w for web)
 ```
+
+Check it: `curl http://127.0.0.1:3000/healthz` → `{"status":"ok",...}`. Run the tests with `pnpm test` and `pnpm test:concurrency`.
 
 ## Architecture
 
@@ -30,7 +39,7 @@ docker compose up -d && pnpm install && pnpm db:migrate && pnpm db:seed && pnpm 
 
 I build with Claude Code daily. This repo shows the workflow, not just the output.
 
-- **Rules, not reminders.** `CLAUDE.md` holds project memory. Hooks in `.claude/settings.json` *enforce* quality: protected files can't be edited, every edit is typechecked and linted, and any change to the claim path runs the concurrency suite automatically.
+- **Rules, not reminders.** `CLAUDE.md` holds project memory. Hooks in `.claude/settings.json` _enforce_ quality: protected files can't be edited, every edit is typechecked and linted, and any change to the claim path runs the concurrency suite automatically.
 - **Separate builder from reviewer.** Subagents in `.claude/agents/` with no edit tools attack the work (Bash, where granted, is only for running tests and reading output): an adversarial `concurrency-reviewer`, a `ui-states-reviewer`, and a `load-test-analyst`.
 - **Repeatable workflows.** Skills in `.claude/skills/` encode how work gets done: `/milestone`, `/claim-change`, `/load-run`, `/log-session`.
 - **Nothing merges on trust.** Four merge gates: local hooks, CI, a claim-path smoke test that boots the real API, spikes it, and reconciles, then branch protection requiring all of it. The agent can't touch `main`, merge, or skip a check.

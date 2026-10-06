@@ -1,0 +1,46 @@
+{
+  "name": "surge",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "prepare": "lefthook install",
+    "dev": "concurrently -k -n api,worker,mobile -c blue,magenta,green \"pnpm --filter @surge/api dev\" \"pnpm --filter @surge/api dev:worker\" \"pnpm --filter @surge/mobile start\"",
+    "typecheck": "pnpm -r typecheck && tsc -p scripts/tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --project unit --project integration && pnpm test:hooks",
+    "test:hooks": "node --test \".claude/hooks/tests/*.test.mjs\"",
+    "test:concurrency": "vitest run --project concurrency",
+    "build": "pnpm -r build",
+    "start:api": "cross-env NODE_ENV=production node --env-file-if-exists=.env apps/api/dist/server.js",
+    "start:worker": "cross-env NODE_ENV=production node --env-file-if-exists=.env apps/api/dist/worker.js",
+    "db:migrate": "tsx --env-file-if-exists=.env apps/api/src/db/migrate-cli.ts",
+    "db:seed": "tsx --env-file-if-exists=.env apps/api/src/db/seed.ts",
+    "db:promote": "tsx apps/api/src/db/promote.ts",
+    "db:readonly-role": "tsx --env-file-if-exists=.env scripts/run-sql.ts scripts/readonly-role.sql",
+    "load:spike": "node load/spike.mjs",
+    "reconcile": "tsx --env-file-if-exists=.env scripts/reconcile.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "ioredis": "^6.0.0",
+    "lefthook": "^2.1.17",
+    "pg": "^8.23.1",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}

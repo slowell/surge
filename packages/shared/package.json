@@ -1,0 +1,20 @@
+{
+  "name": "@surge/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API contract: zod schemas and the types inferred from them. Consumed as TypeScript source (no build step).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  }
+}

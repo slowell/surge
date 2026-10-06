@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-  merge_group:            # used if the repo has a merge queue (org repos); harmless otherwise
+  merge_group: # used if the repo has a merge queue (org repos); harmless otherwise
   push:
     branches: [main]
 
@@ -11,8 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # App processes (db:migrate, start:api, start:worker) read these.
   DATABASE_URL: postgres://postgres:postgres@localhost:5432/surge_test
   REDIS_URL: redis://localhost:6379
+  # Tests read only TEST_*; they ignore the app vars so a dev shell can't point them at dev data.
+  TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/surge_test
+  TEST_REDIS_URL: redis://localhost:6379/15
   JWT_SECRET: ci-secret
   ADMIN_TOKEN: ci-admin
 
@@ -54,10 +58,10 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck        # all packages: catches shared-contract breaks across api + mobile
+      - run: pnpm typecheck # all packages: catches shared-contract breaks across api + mobile
       - run: pnpm lint
       - run: pnpm db:migrate
       - run: pnpm test
@@ -86,7 +90,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
       - uses: grafana/setup-k6-action@v1
       - run: pnpm install --frozen-lockfile

@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Surge",
+    "slug": "surge",
+    "scheme": "surge",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "web": { "bundler": "metro", "output": "single" },
+    "experiments": { "typedRoutes": true },
+    "plugins": ["expo-router", "expo-status-bar"]
+  }
+}
